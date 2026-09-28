@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# controlphone — one entrypoint for controlling a real iPhone from the Mac.
+# Routes each verb to the transport that actually works for it (verified 2026-09-28
+# on iPhone 17 Pro / iOS 27.0):
+#   • device info / app list / device name  -> go-ios lockdownd   (USB, no tunnel)
+#   • open an app (launch)                  -> xcrun devicectl     (self-mounts DDI, no go-ios tunnel)
+#   • tap / type / swipe / screenshot       -> Path B WebDriverAgent CLI (needs `iphonectl-setup up`)
+#
+# Scope: your own device, for interoperability (DMCA §1201(f)).
+set -euo pipefail
+
+GOIOS="${GOIOS:-$HOME/go/bin/go-ios}"
+PP_CLI="${PP_CLI:-$HOME/projects/iphonectl/wda/iphonectl-pp-cli}"
+SESSION_FILE="$HOME/.config/iphonectl/session-id"
+
+die() { printf 'controlphone: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Resolve a physical (not simulated) device UDID from devicectl, overridable with $UDID.
+resolve_udid() {
+  if [ -n "${UDID:-}" ]; then printf '%s' "$UDID"; return 0; fi
+  # Pull the UDID token from the "physical" row. Modern UDIDs come in two shapes:
+  # dashed (00000000-0000000000000000) and 24/40-char hex. Match hex-with-dashes,
+  # length >= 20, which excludes words like "physical"/"available"/"iPhone".
+  xcrun devicectl list devices 2>/dev/null \
+    | awk '/physical/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-Fa-f-]{20,}$/) { print $i; exit } }'
+}
+
+need_udid() {
+  local u; u="$(resolve_udid)"
+  [ -n "$u" ] || die "no physical iPhone found (plug in + Trust This Computer; check: xcrun devicectl list devices)"
+  printf '%s' "$u"
+}
+
+# name-or-bundleid -> bundle id, resolved against the phone's installed apps.
+resolve_bundle() {
+  local q="$1"
+  # already a bundle id (has a dot, no spaces)?
+  if [[ "$q" == *.* && "$q" != *" "* ]]; then printf '%s' "$q"; return 0; fi
+  [ -x "$GOIOS" ] || die "go-ios not found at $GOIOS (needed to resolve an app name to a bundle id)"
+  "$GOIOS" apps 2>/dev/null | Q="$q" python3 -c '
+import sys, json, os
+q = os.environ["Q"].lower()
+try:
+    apps = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for a in (apps if isinstance(apps, list) else []):
+    name = (a.get("CFBundleDisplayName") or a.get("CFBundleName") or "")
+    bid = a.get("CFBundleIdentifier", "")
+    if q in name.lower() or q in bid.lower():
+        print(bid); break
+'
+}
+
+cmd_list() {
+  have xcrun || die "xcrun (Xcode command line tools) not found"
+  xcrun devicectl list devices 2>/dev/null | grep -E 'physical|Name|---' || true
+}
+
+cmd_info() {
+  local u; u="$(need_udid)"
+  [ -x "$GOIOS" ] || die "go-ios not found at $GOIOS"
+  "$GOIOS" info --udid "$u" 2>/dev/null | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: sys.exit("could not read device info")
+for k in ("DeviceName","ProductType","ProductVersion","BuildVersion","CPUArchitecture","UniqueDeviceID"):
+    if k in d: print(f"{k:16} {d[k]}")
+'
+}
+
+cmd_apps() {
+  local u; u="$(need_udid)"; local filter="${1:-}"
+  [ -x "$GOIOS" ] || die "go-ios not found at $GOIOS"
+  "$GOIOS" apps --udid "$u" 2>/dev/null | F="$filter" python3 -c '
+import sys, json, os
+f = os.environ.get("F","").lower()
+try: apps = json.load(sys.stdin)
+except Exception: sys.exit(0)
+rows=[]
+for a in (apps if isinstance(apps,list) else []):
+    if a.get("ApplicationType") not in ("User", None):
+        pass
+    name = (a.get("CFBundleDisplayName") or a.get("CFBundleName") or "")
+    bid = a.get("CFBundleIdentifier","")
+    if not bid: continue
+    if f and f not in (name+bid).lower(): continue
+    rows.append((name,bid))
+for name,bid in sorted(rows):
+    print(f"{name}\t{bid}")
+'
+}
+
+cmd_open() {
+  [ $# -ge 1 ] || die "usage: controlphone open <app-name|bundle-id>"
+  local u; u="$(need_udid)"
+  local bid; bid="$(resolve_bundle "$1")"
+  [ -n "$bid" ] || die "no installed app matches '$1' (try: controlphone apps '$1')"
+  have xcrun || die "xcrun not found"
+  echo "launching $bid on $u ..."
+  xcrun devicectl device process launch --device "$u" "$bid" 2>&1 | tail -3
+}
+
+session_up() { [ -f "$SESSION_FILE" ] && [ -s "$SESSION_FILE" ]; }
+
+cmd_screenshot() {
+  local out="${1:-iphone-$(date +%Y%m%d-%H%M%S).png}"
+  if session_up && [ -x "$PP_CLI" ]; then
+    echo "capturing via WebDriverAgent (Path B) -> $out"
+    "$PP_CLI" screenshot --json 2>/dev/null | python3 -c '
+import sys,json,base64
+d=json.load(sys.stdin); b=d.get("value") or d.get("screenshot") or ""
+open(sys.argv[1],"wb").write(base64.b64decode(b))' "$out" && echo "wrote $out"
+  else
+    die "screenshot needs Path B running. Bring it up: iphonectl-setup up  (tunnel in another terminal first). Path A native capture is walled on iOS 27 — see README."
+  fi
+}
+
+cmd_tap() {
+  [ $# -ge 2 ] || die "usage: controlphone tap <x> <y>"
+  session_up && [ -x "$PP_CLI" ] || die "tap needs Path B running: iphonectl-setup up"
+  local sid; sid="$(cat "$SESSION_FILE")"
+  "$PP_CLI" session wda "$sid" --action tap --x "$1" --y "$2" 2>&1 | tail -3
+}
+
+cmd_type() {
+  [ $# -ge 1 ] || die "usage: controlphone type <text>"
+  session_up && [ -x "$PP_CLI" ] || die "type needs Path B running: iphonectl-setup up"
+  local sid; sid="$(cat "$SESSION_FILE")"
+  "$PP_CLI" session wda "$sid" --action keys --text "$*" 2>&1 | tail -3
+}
+
+usage() {
+  cat <<'EOF'
+controlphone — control a real iPhone from the Mac
+
+USAGE
+  controlphone <command> [args]
+
+WORKS OVER USB WITH NO TUNNEL (go-ios lockdownd + xcrun devicectl):
+  list                    List connected physical devices
+  info                    Device name / model / iOS version / UDID
+  apps [filter]           Installed apps (optionally filtered), name -> bundle id
+  open <name|bundle-id>   Launch an app on the phone   (e.g. controlphone open Muse)
+
+NEEDS PATH B (WebDriverAgent) RUNNING  —  iphonectl-setup up:
+  screenshot [out.png]    Capture the screen
+  tap <x> <y>             Tap at screen coordinates
+  type <text>             Type text into the focused field
+
+  help                    This text
+
+ENV: UDID=<udid> targets a specific device; GOIOS / PP_CLI override tool paths.
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    list)        cmd_list "$@" ;;
+    info)        cmd_info "$@" ;;
+    apps)        cmd_apps "$@" ;;
+    open|launch) cmd_open "$@" ;;
+    screenshot|shot) cmd_screenshot "$@" ;;
+    tap)         cmd_tap "$@" ;;
+    type)        cmd_type "$@" ;;
+    help|-h|--help) usage ;;
+    *) printf 'unknown command: %s\n\n' "$cmd" >&2; usage; exit 2 ;;
+  esac
+}
+main "$@"
