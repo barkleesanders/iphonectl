@@ -8,6 +8,46 @@ phone with the same commands you do.
 > to a phone you own over a USB connection you've authorized ("Trust This Computer"). Don't
 > point it at a device that isn't yours.
 
+## Why not just screen mirroring?
+
+Apple already puts your iPhone's screen on your Mac, so it's fair to ask why this exists. The
+short version: **mirroring is built for a human's eyes and hands; iphonectl is built for a
+program's.** They solve different problems.
+
+Apple's options:
+
+- **QuickTime "Movie Recording" / AirPlay** — sends the iPhone's screen to the Mac (over USB
+  or the network). It is **read-only**: pixels for a person to look at, with no way to click
+  or type back.
+- **[iPhone Mirroring](https://support.apple.com/en-us/120421)** (macOS Sequoia 15+, iOS 18+)
+  — lets a **person** drive the phone with the Mac's mouse and keyboard. Real control, but a
+  **GUI for a human**, not an interface a script or agent can call. It also requires the iPhone
+  and Mac on the **same Apple Account with two-factor**, Bluetooth **and** Wi-Fi on, the iPhone
+  **locked and near** the Mac, and works with **one Mac and one iPhone at a time**.
+
+What neither gives you — and what this project is for:
+
+| | Screen mirroring (incl. iPhone Mirroring) | **iphonectl (WDA / Path B)** |
+|---|---|---|
+| Who drives it | a human, by hand | a **program, CLI, or AI agent** |
+| Interface | on-screen GUI only | **REST + CLI + MCP** — every action is a command |
+| Sees the UI as | pixels in a video | a **structured element tree** (find by label/role, not pixel-matching) |
+| Input | mouse/keyboard a person moves | **scripted** tap-by-element/coordinate, type, swipe, launch app, deep links, hardware buttons |
+| Headless / CI / device farm | no | **yes** — this is how BrowserStack, Sauce Labs, and AWS Device Farm automate real iPhones |
+| Reproducible / scriptable | no | **yes** — commit a script, run it a thousand times |
+
+Where mirroring is genuinely the better choice — and this project doesn't pretend otherwise:
+
+- **Zero setup.** No signing, no WDA install, no tunnel — turn it on and go.
+- **Smooth live video** of the actual screen. iphonectl's screenshots are stills, and Path A's
+  live capture is walled on iOS 27 (see below).
+- If you're a person who just wants to tap around your own phone from your desk, use **iPhone
+  Mirroring** — it's simpler and better for that.
+
+Reach for iphonectl when the phone needs to be driven by **automation, a test suite, or an
+agent** — a job a screen mirror structurally can't do, because it hands you a picture, not a
+programmable surface.
+
 ## Why two paths
 
 TapKit reverse-engineers three raw-hardware mechanisms (USB CoreMediaIO screen capture,
