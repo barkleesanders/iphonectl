@@ -9,8 +9,9 @@ Open-source, TapKit-inspired. Repo: `~/projects/iphonectl`. One entrypoint
 (`bin/controlphone`) that routes each verb to the transport that actually works for it,
 plus a full Path B (WebDriverAgent CLI+MCP) and Path A (native Swift) underneath.
 
-Real device on this Mac: iPhone 17 Pro, UDID `00000000-0000000000000000`, iOS 27.0.
-Scope: the user's own device, for interoperability (DMCA §1201(f)).
+Reference device: iPhone 17 Pro, iOS 27.0. The UDID is resolved dynamically at
+runtime (`xcrun devicectl list devices`) — nothing is hardcoded; override with `UDID=<udid>`.
+Scope: your own device, for interoperability (DMCA §1201(f)).
 
 ## The one command (start here)
 

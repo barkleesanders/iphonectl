@@ -94,8 +94,7 @@ with the bring-up commands and per-symptom troubleshooting.
 
 ## Verified against a real device (2026-09-28)
 
-Tested on a physical **iPhone 17 Pro** (`iPhone18,1`), **iOS 27.0**, UDID `00008150-…`,
-macOS 27, Swift 6.4:
+Tested on a physical **iPhone 17 Pro** (`iPhone18,1`), **iOS 27.0**, macOS 27, Swift 6.4:
 
 - **Live device link (Path B transport, no tunnel):** `go-ios` lockdownd query returned
   `DeviceName=iPhone, ProductType=iPhone18,1, ProductVersion=27.0, CPUArchitecture=arm64e` —

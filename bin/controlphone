@@ -20,7 +20,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 resolve_udid() {
   if [ -n "${UDID:-}" ]; then printf '%s' "$UDID"; return 0; fi
   # Pull the UDID token from the "physical" row. Modern UDIDs come in two shapes:
-  # dashed (00000000-0000000000000000) and 24/40-char hex. Match hex-with-dashes,
+  # dashed (e.g. 00000000-0000000000000000) and 24/40-char hex. Match hex-with-dashes,
   # length >= 20, which excludes words like "physical"/"available"/"iPhone".
   xcrun devicectl list devices 2>/dev/null \
     | awk '/physical/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-Fa-f-]{20,}$/) { print $i; exit } }'
