@@ -1,0 +1,360 @@
+openapi: 3.0.3
+info:
+  title: WebDriverAgent
+  version: "1.0.0"
+  description: >
+    REST control surface for an iOS device via WebDriverAgent (WDA), the
+    open-source XCTest-based automation server that runs on the iPhone/iPad.
+    Routes are taken verbatim from appium/WebDriverAgent
+    (WebDriverAgentLib/Commands/*.m, commit 478b4ef, retrieved 2026-09-28).
+    The Mac reaches WDA at http://127.0.0.1:8100 after go-ios forwards the
+    device's port 8100 over USB. Most action routes are session-scoped:
+    create a session with POST /session, then pass its id as {sessionId}.
+servers:
+  - url: http://127.0.0.1:8100
+    description: WDA over a go-ios USB port-forward
+paths:
+  /status:
+    get:
+      operationId: getStatus
+      summary: Server + device readiness (session-less; use for healthcheck)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /session:
+    post:
+      operationId: createSession
+      summary: Create a WDA session (returns sessionId used by all action routes)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateSessionBody" }
+      responses:
+        "200": { description: session created, content: { application/json: { schema: { $ref: "#/components/schemas/SessionValue" } } } }
+  /session/{sessionId}:
+    delete:
+      operationId: deleteSession
+      summary: End a session
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      responses: { "200": { description: OK } }
+  /screenshot:
+    get:
+      operationId: screenshot
+      summary: Full-screen PNG as base64 (session-less)
+      responses:
+        "200": { description: base64 PNG in value, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /source:
+    get:
+      operationId: pageSource
+      summary: UI hierarchy (accessibility tree) as XML or JSON
+      parameters:
+        - { name: format, in: query, required: false, schema: { type: string, enum: [xml, json, description], default: xml } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /wda/homescreen:
+    post:
+      operationId: homescreen
+      summary: Press Home / go to the Home Screen (session-less)
+      responses: { "200": { description: OK } }
+  /wda/locked:
+    get:
+      operationId: isLocked
+      summary: Whether the screen is locked (session-less)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /wda/lock:
+    post:
+      operationId: lock
+      summary: Lock the screen (session-less)
+      responses: { "200": { description: OK } }
+  /wda/unlock:
+    post:
+      operationId: unlock
+      summary: Unlock the screen (session-less; phone must have no/known passcode)
+      responses: { "200": { description: OK } }
+  /wda/batteryInfo:
+    get:
+      operationId: batteryInfo
+      summary: Battery level and state
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /wda/device/info:
+    get:
+      operationId: deviceInfo
+      summary: Device model, iOS version, screen size, etc.
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /wda/activeAppInfo:
+    get:
+      operationId: activeAppInfo
+      summary: Bundle id + pid of the foreground app
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /session/{sessionId}/wda/tap:
+    post:
+      operationId: tap
+      summary: Tap at absolute screen coordinates
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/XY" } } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/doubleTap:
+    post:
+      operationId: doubleTap
+      summary: Double-tap at coordinates
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/XY" } } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/touchAndHold:
+    post:
+      operationId: touchAndHold
+      summary: Long-press at coordinates for a duration
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/XY" }
+                - type: object
+                  properties: { duration: { type: number, description: seconds } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/dragfromtoforduration:
+    post:
+      operationId: drag
+      summary: Drag from one coordinate to another over a duration
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromX, fromY, toX, toY, duration]
+              properties:
+                fromX: { type: number }
+                fromY: { type: number }
+                toX: { type: number }
+                toY: { type: number }
+                duration: { type: number, description: seconds }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/swipe:
+    post:
+      operationId: swipe
+      summary: Directional swipe (up/down/left/right)
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction: { type: string, enum: [up, down, left, right] }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/keys:
+    post:
+      operationId: sendKeys
+      summary: Type text into the focused field
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items: { type: string }
+                  description: characters/strings to type, e.g. ["hello"]
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/pressButton:
+    post:
+      operationId: pressButton
+      summary: Press a hardware button (home, volumeUp, volumeDown)
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, enum: [home, volumeUp, volumeDown] }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/siri/activate:
+    post:
+      operationId: siri
+      summary: Invoke Siri with a spoken text command
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties: { text: { type: string } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/url:
+    post:
+      operationId: openURL
+      summary: Open a URL/deep-link in the foreground app
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties: { url: { type: string } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/apps/launch:
+    post:
+      operationId: launchApp
+      summary: Launch (or foreground) an app by bundle id
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BundleId" } } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/apps/activate:
+    post:
+      operationId: activateApp
+      summary: Bring a background app to the foreground by bundle id
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BundleId" } } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/apps/terminate:
+    post:
+      operationId: terminateApp
+      summary: Terminate an app by bundle id
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BundleId" } } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/wda/apps/state:
+    post:
+      operationId: appState
+      summary: Query an app's run state (0..4) by bundle id
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BundleId" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /session/{sessionId}/element:
+    post:
+      operationId: findElement
+      summary: Find one element by strategy + selector
+      parameters: [ { $ref: "#/components/parameters/SessionId" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Locator" } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+  /session/{sessionId}/element/{uuid}/click:
+    post:
+      operationId: clickElement
+      summary: Tap a previously found element by its element id
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { $ref: "#/components/parameters/Uuid" }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/element/{uuid}/value:
+    post:
+      operationId: setElementValue
+      summary: Type text into a found element
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { $ref: "#/components/parameters/Uuid" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: array, items: { type: string } }
+      responses: { "200": { description: OK } }
+  /session/{sessionId}/element/{uuid}/text:
+    get:
+      operationId: elementText
+      summary: Read an element's text
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { $ref: "#/components/parameters/Uuid" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Value" } } } }
+components:
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string }
+      description: id returned by POST /session
+    Uuid:
+      name: uuid
+      in: path
+      required: true
+      schema: { type: string }
+      description: element id returned by findElement
+  schemas:
+    Value:
+      type: object
+      properties:
+        value: {}
+        sessionId: { type: string }
+    SessionValue:
+      type: object
+      properties:
+        value:
+          type: object
+          properties:
+            sessionId: { type: string }
+            capabilities: { type: object, additionalProperties: true }
+        sessionId: { type: string }
+    CreateSessionBody:
+      type: object
+      properties:
+        capabilities:
+          type: object
+          description: W3C capabilities; bundleId under alwaysMatch launches that app
+          additionalProperties: true
+      example:
+        capabilities:
+          alwaysMatch: { "bundleId": "com.apple.Preferences" }
+          firstMatch: [ {} ]
+    XY:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number, description: absolute screen x in points }
+        y: { type: number, description: absolute screen y in points }
+    BundleId:
+      type: object
+      required: [bundleId]
+      properties:
+        bundleId: { type: string, example: com.apple.Preferences }
+    Locator:
+      type: object
+      required: [using, value]
+      properties:
+        using:
+          type: string
+          enum: [accessibility id, class name, name, xpath, predicate string, class chain, link text, partial link text]
+        value: { type: string }

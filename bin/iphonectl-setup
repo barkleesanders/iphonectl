@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# iphonectl-setup — Path B glue: bring WebDriverAgent up on a real iPhone over USB
+# via go-ios, then expose it at http://127.0.0.1:8100 so the generated
+# iphonectl-pp-cli / iphonectl-pp-mcp can drive the device.
+#
+# WHY THIS EXISTS: the generated CLI is a thin REST client. It cannot reach the
+# phone until (1) an iOS-17+ USB tunnel is up, (2) WDA is signed+installed,
+# (3) WDA is launched, and (4) device port 8100 is forwarded to localhost. This
+# orchestrates go-ios to do all four, then bootstraps a WDA session.
+#
+# Nothing here is installed on the phone permanently beyond WDA itself (a normal
+# dev app you can delete). No jailbreak. Read-only where it can be.
+set -euo pipefail
+
+# ---- config -----------------------------------------------------------------
+GOIOS="${GOIOS:-$HOME/go/bin/go-ios}"
+WDA_HOST="${IPHONECTL_HOST:-127.0.0.1}"
+WDA_PORT="${IPHONECTL_PORT:-8100}"
+WDA_BASE="http://${WDA_HOST}:${WDA_PORT}"
+STATE_DIR="${IPHONECTL_STATE_DIR:-$HOME/.config/iphonectl}"
+SESSION_FILE="$STATE_DIR/session-id"
+LOG_DIR="${IPHONECTL_LOG_DIR:-$STATE_DIR/logs}"
+# Signing inputs for `go-ios ui install wda` (device install requires a real
+# Apple signing identity — a free personal team works for 7-day installs).
+P12="${IPHONECTL_P12:-}"
+PROFILE="${IPHONECTL_PROFILE:-}"
+P12_PASSWORD="${IPHONECTL_P12_PASSWORD:-}"
+
+mkdir -p "$STATE_DIR" "$LOG_DIR"
+
+err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
+info() { printf '\033[36m•\033[0m %s\n' "$*" >&2; }
+ok()   { printf '\033[32m✓\033[0m %s\n'  "$*" >&2; }
+
+# ---- device resolution ------------------------------------------------------
+resolve_udid() {
+  if [ -n "${IPHONECTL_UDID:-}" ]; then printf '%s\n' "$IPHONECTL_UDID"; return 0; fi
+  local out
+  out="$("$GOIOS" list --nojson 2>/dev/null | grep -Eo '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}|[0-9A-Fa-f]{40}' | head -1 || true)"
+  if [ -z "$out" ]; then
+    err "no iOS device found by go-ios. Plug in the iPhone, unlock it, and Trust this Mac."
+    return 3
+  fi
+  printf '%s\n' "$out"
+}
+
+udid_flag() { local u; u="$(resolve_udid)" || return $?; printf -- '--udid=%s' "$u"; }
+
+# ---- subcommands ------------------------------------------------------------
+cmd_preflight() {
+  local rc=0
+  if [ -x "$GOIOS" ]; then ok "go-ios: $("$GOIOS" version 2>/dev/null | tail -1)"; else err "go-ios not at $GOIOS (set GOIOS=)"; rc=1; fi
+  if command -v xcrun >/dev/null 2>&1; then ok "Xcode CLT: $(xcrun --version 2>/dev/null | head -1)"; else err "Xcode command-line tools missing (xcode-select --install)"; rc=1; fi
+  local u; if u="$(resolve_udid 2>/dev/null)"; then ok "device: $u"; else err "no device (plug in + unlock + Trust)"; rc=1; fi
+  if [ -n "$P12" ] && [ -f "$P12" ]; then ok "signing p12: $P12"; else info "no IPHONECTL_P12 set — 'install' will need it (see: $0 help)"; fi
+  if [ -n "$PROFILE" ] && [ -f "$PROFILE" ]; then ok "provisioning profile: $PROFILE"; else info "no IPHONECTL_PROFILE set — 'install' will need it"; fi
+  return $rc
+}
+
+cmd_tunnel() {
+  # iOS 17+ requires a userspace/kernel tunnel, and it needs root.
+  info "starting iOS-17+ tunnel (needs sudo; leave this running in its own terminal)"
+  info "  sudo $GOIOS tunnel start"
+  exec sudo "$GOIOS" tunnel start "$@"
+}
+
+cmd_install() {
+  local uf; uf="$(udid_flag)" || return $?
+  if [ -z "$P12" ] || [ -z "$PROFILE" ]; then
+    err "signing assets required. Set:"
+    err "  export IPHONECTL_P12=/path/to/AppleDev.p12"
+    err "  export IPHONECTL_PROFILE=/path/to/profile.mobileprovision"
+    err "  export IPHONECTL_P12_PASSWORD=...        # if the p12 has one"
+    err "Create them from an Apple Development identity (free personal team OK for 7-day installs),"
+    err "or use: $GOIOS sign provision appstoreconnect ..."
+    return 4
+  fi
+  info "signing + installing WebDriverAgent on device"
+  local args=(ui install wda --p12file="$P12" --profile="$PROFILE" "$uf")
+  [ -n "$P12_PASSWORD" ] && args+=(--p12password="$P12_PASSWORD")
+  [ -n "${IPHONECTL_WDA_PATH:-}" ] && args+=(--path="$IPHONECTL_WDA_PATH")
+  "$GOIOS" "${args[@]}"
+  ok "WDA installed"
+}
+
+cmd_run() {
+  local uf; uf="$(udid_flag)" || return $?
+  info "launching WebDriverAgent (backgrounds; log -> $LOG_DIR/runwda.log)"
+  nohup "$GOIOS" runwda "$uf" >"$LOG_DIR/runwda.log" 2>&1 &
+  echo $! > "$STATE_DIR/runwda.pid"
+  sleep 3
+  ok "runwda started (pid $(cat "$STATE_DIR/runwda.pid"))"
+}
+
+cmd_forward() {
+  local uf; uf="$(udid_flag)" || return $?
+  info "forwarding ${WDA_HOST}:${WDA_PORT} -> device:8100 (backgrounds; log -> $LOG_DIR/forward.log)"
+  nohup "$GOIOS" forward "$WDA_PORT" 8100 "$uf" >"$LOG_DIR/forward.log" 2>&1 &
+  echo $! > "$STATE_DIR/forward.pid"
+  sleep 2
+  ok "port forward up on $WDA_BASE"
+}
+
+cmd_status() {
+  info "probing $WDA_BASE/status"
+  local body
+  body="$(curl -fsS -m 8 "$WDA_BASE/status" 2>/dev/null || true)"
+  if [ -z "$body" ]; then
+    err "WDA not reachable at $WDA_BASE — is tunnel up, WDA running, and port forwarded?"
+    return 5
+  fi
+  printf '%s\n' "$body"
+  ok "WDA is up"
+}
+
+cmd_session() {
+  # Bootstrap a WDA session and cache its id. WDA action routes are session-scoped.
+  local body sid
+  body="$(curl -fsS -m 15 -X POST "$WDA_BASE/session" \
+            -H 'Content-Type: application/json' \
+            -d '{"capabilities":{"alwaysMatch":{},"firstMatch":[{}]}}' 2>/dev/null || true)"
+  sid="$(printf '%s' "$body" | /usr/bin/python3 -c 'import sys,json;print(json.load(sys.stdin).get("value",{}).get("sessionId",""))' 2>/dev/null || true)"
+  if [ -z "$sid" ]; then
+    err "could not create a WDA session. Response: ${body:-<empty>}"
+    return 5
+  fi
+  printf '%s\n' "$sid" > "$SESSION_FILE"
+  ok "session created: $sid  (cached at $SESSION_FILE)"
+  printf '%s\n' "$sid"
+}
+
+cmd_up() {
+  info "full bring-up. NOTE: run '$0 tunnel' in a separate sudo terminal FIRST (iOS 17+)."
+  cmd_preflight || { err "preflight failed — fix the above, then retry"; return 1; }
+  cmd_run
+  cmd_forward
+  # poll status up to ~30s while WDA boots
+  local i
+  for i in $(seq 1 15); do
+    if curl -fsS -m 4 "$WDA_BASE/status" >/dev/null 2>&1; then break; fi
+    sleep 2
+  done
+  cmd_status || return $?
+  cmd_session >/dev/null || return $?
+  ok "iphonectl Path B is UP. Session id cached; drive with the CLI:"
+  info "  SID=\$(cat $SESSION_FILE)"
+  info "  iphonectl-pp-cli status"
+  info "  iphonectl-pp-cli session wda create-and-send-wda \"\$SID\" ...   # tap/swipe/keys"
+}
+
+cmd_down() {
+  for p in runwda forward; do
+    if [ -f "$STATE_DIR/$p.pid" ]; then
+      kill "$(cat "$STATE_DIR/$p.pid")" 2>/dev/null && ok "stopped $p" || true
+      rm -f "$STATE_DIR/$p.pid"
+    fi
+  done
+  info "tunnel (sudo) must be stopped in its own terminal (Ctrl-C) or: sudo $GOIOS tunnel stopagent"
+}
+
+cmd_help() {
+  cat >&2 <<EOF
+iphonectl-setup — bring WebDriverAgent up on a real iPhone (Path B glue)
+
+USAGE
+  iphonectl-setup <command>
+
+COMMANDS
+  preflight   Check go-ios, Xcode CLT, device, and signing assets
+  tunnel      Start the iOS-17+ USB tunnel (runs sudo, stays in foreground)
+  install     Sign + install WebDriverAgent on the device (needs signing assets)
+  run         Launch WDA on the device (background)
+  forward     Forward ${WDA_HOST}:${WDA_PORT} -> device:8100 (background)
+  status      Probe $WDA_BASE/status
+  session     Create a WDA session and cache its id at $SESSION_FILE
+  up          preflight -> run -> forward -> status -> session (tunnel must already be running)
+  down        Stop background runwda + forward processes
+  help        This text
+
+ONE-TIME SIGNING SETUP (device install only; simulators do not need this)
+  export IPHONECTL_P12=/path/to/AppleDevelopment.p12
+  export IPHONECTL_PROFILE=/path/to/profile.mobileprovision
+  export IPHONECTL_P12_PASSWORD=...    # optional
+  # A free personal Apple team works (7-day WDA installs). Then: iphonectl-setup install
+
+TYPICAL SESSION
+  # terminal 1:
+  iphonectl-setup tunnel
+  # terminal 2:
+  iphonectl-setup install     # first run only
+  iphonectl-setup up
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    preflight) cmd_preflight "$@" ;;
+    tunnel)    cmd_tunnel "$@" ;;
+    install)   cmd_install "$@" ;;
+    run)       cmd_run "$@" ;;
+    forward)   cmd_forward "$@" ;;
+    status)    cmd_status "$@" ;;
+    session)   cmd_session "$@" ;;
+    up)        cmd_up "$@" ;;
+    down)      cmd_down "$@" ;;
+    help|-h|--help) cmd_help ;;
+    *) err "unknown command: $cmd"; cmd_help; return 2 ;;
+  esac
+}
+main "$@"

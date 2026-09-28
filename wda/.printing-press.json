@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-09-28T20:36:23.92602Z",
+  "printing_press_version": "4.30.2",
+  "api_name": "iphonectl",
+  "display_name": "Webdriveragent",
+  "cli_name": "iphonectl-pp-cli",
+  "creator": {
+    "handle": "barkleesanders",
+    "name": "Barklees Sanders"
+  },
+  "owner": "barkleesanders",
+  "printer": "barkleesanders",
+  "printer_name": "Barklees Sanders",
+  "spec_path": "spec.yaml",
+  "spec_format": "openapi3",
+  "spec_checksum": "sha256:bb795eb86090e366eb3092cb600757c256553929823887bf70fd3a92940100a4",
+  "run_id": "20260928-203623",
+  "description": "REST control surface for an iOS device via WebDriverAgent (WDA)",
+  "mcp_binary": "iphonectl-pp-mcp",
+  "mcp_tool_count": 29,
+  "mcp_public_tool_count": 29,
+  "mcp_ready": "full",
+  "api_version": "1.0.0",
+  "auth_type": "none",
+  "auth_env_vars": [
+    "PRINTING_PRESS_CLIENT_PROFILE"
+  ],
+  "auth_env_var_specs": [
+    {
+      "name": "PRINTING_PRESS_CLIENT_PROFILE",
+      "kind": "per_call",
+      "required": true,
+      "sensitive": false
+    }
+  ]
+}

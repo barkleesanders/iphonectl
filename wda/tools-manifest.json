@@ -1,0 +1,591 @@
+{
+  "api_name": "iphonectl",
+  "base_url": "http://127.0.0.1:8100",
+  "description": "REST control surface for an iOS device via WebDriverAgent (WDA)",
+  "mcp_ready": "full",
+  "http_transport": "standard",
+  "auth": {
+    "type": "none"
+  },
+  "required_headers": [],
+  "tools": [
+    {
+      "name": "screenshot_screenshot",
+      "description": "Full-screen PNG as base64 (session-less). Returns the Value.",
+      "method": "GET",
+      "path": "/screenshot",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "session_create",
+      "description": "Create a WDA session (returns sessionId used by all action routes). Optional: capabilities.",
+      "method": "POST",
+      "path": "/session",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "capabilities",
+          "type": "object",
+          "location": "body",
+          "description": "W3C capabilities; bundleId under alwaysMatch launches that app"
+        }
+      ]
+    },
+    {
+      "name": "session_delete",
+      "description": "End a session. Required: sessionId. Destructive.",
+      "method": "DELETE",
+      "path": "/session/{sessionId}",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_element_click",
+      "description": "Tap a previously found element by its element id. Required: sessionId, uuid.",
+      "method": "POST",
+      "path": "/session/{sessionId}/element/{uuid}/click",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "uuid",
+          "type": "string",
+          "location": "path",
+          "description": "element id returned by findElement",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_element_find",
+      "description": "Find one element by strategy + selector. Required: sessionId, using, value. Returns the new Value.",
+      "method": "POST",
+      "path": "/session/{sessionId}/element",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "using",
+          "type": "string",
+          "location": "body",
+          "description": "Using",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "location": "body",
+          "description": "Value",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_element_set-value",
+      "description": "Type text into a found element. Required: sessionId, uuid, value.",
+      "method": "POST",
+      "path": "/session/{sessionId}/element/{uuid}/value",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "uuid",
+          "type": "string",
+          "location": "path",
+          "description": "element id returned by findElement",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string_csv_array",
+          "location": "body",
+          "description": "Value",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_element_text",
+      "description": "Read an element's text. Required: sessionId, uuid. Returns the Value.",
+      "method": "GET",
+      "path": "/session/{sessionId}/element/{uuid}/text",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "uuid",
+          "type": "string",
+          "location": "path",
+          "description": "element id returned by findElement",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_url_open",
+      "description": "Open a URL/deep-link in the foreground app. Required: sessionId, url.",
+      "method": "POST",
+      "path": "/session/{sessionId}/url",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "location": "body",
+          "description": "Url",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_activate-app",
+      "description": "Bring a background app to the foreground by bundle id. Required: sessionId, bundleId.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/apps/activate",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "bundleId",
+          "type": "string",
+          "location": "body",
+          "description": "Bundle id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_app-state",
+      "description": "Query an app's run state (0..4) by bundle id. Required: sessionId, bundleId. Returns the new Value.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/apps/state",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "bundleId",
+          "type": "string",
+          "location": "body",
+          "description": "Bundle id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_double-tap",
+      "description": "Double-tap at coordinates. Required: sessionId, x, y.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/doubleTap",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen x in points",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen y in points",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_drag",
+      "description": "Drag from one coordinate to another over a duration. Required: sessionId, duration, fromX, fromY, toX, toY.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/dragfromtoforduration",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "duration",
+          "type": "float",
+          "location": "body",
+          "description": "seconds",
+          "required": true
+        },
+        {
+          "name": "fromX",
+          "type": "float",
+          "location": "body",
+          "description": "From x",
+          "required": true
+        },
+        {
+          "name": "fromY",
+          "type": "float",
+          "location": "body",
+          "description": "From y",
+          "required": true
+        },
+        {
+          "name": "toX",
+          "type": "float",
+          "location": "body",
+          "description": "To x",
+          "required": true
+        },
+        {
+          "name": "toY",
+          "type": "float",
+          "location": "body",
+          "description": "To y",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_launch-app",
+      "description": "Launch (or foreground) an app by bundle id. Required: sessionId, bundleId.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/apps/launch",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "bundleId",
+          "type": "string",
+          "location": "body",
+          "description": "Bundle id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_press-button",
+      "description": "Press a hardware button (home, volumeUp, volumeDown). Required: sessionId, name.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/pressButton",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "location": "body",
+          "description": "Name",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_send-keys",
+      "description": "Type text into the focused field. Required: sessionId, value.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/keys",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string_csv_array",
+          "location": "body",
+          "description": "characters/strings to type, e.g. ['hello']",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_siri",
+      "description": "Invoke Siri with a spoken text command. Required: sessionId, text.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/siri/activate",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "location": "body",
+          "description": "Text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_swipe",
+      "description": "Directional swipe (up/down/left/right). Required: sessionId, direction.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/swipe",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "direction",
+          "type": "string",
+          "location": "body",
+          "description": "Direction",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_tap",
+      "description": "Tap at absolute screen coordinates. Required: sessionId, x, y.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/tap",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen x in points",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen y in points",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_terminate-app",
+      "description": "Terminate an app by bundle id. Required: sessionId, bundleId.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/apps/terminate",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "bundleId",
+          "type": "string",
+          "location": "body",
+          "description": "Bundle id",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "session_wda_touch-and-hold",
+      "description": "Long-press at coordinates for a duration. Required: sessionId, x, y. Optional: duration.",
+      "method": "POST",
+      "path": "/session/{sessionId}/wda/touchAndHold",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "sessionId",
+          "type": "string",
+          "location": "path",
+          "description": "id returned by POST /session",
+          "required": true
+        },
+        {
+          "name": "duration",
+          "type": "float",
+          "location": "body",
+          "description": "seconds"
+        },
+        {
+          "name": "x",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen x in points",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "location": "body",
+          "description": "absolute screen y in points",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "source_page",
+      "description": "UI hierarchy (accessibility tree) as XML or JSON. Optional: format (default: xml). Returns the Value.",
+      "method": "GET",
+      "path": "/source",
+      "no_auth": true,
+      "params": [
+        {
+          "name": "format",
+          "type": "string",
+          "location": "query",
+          "description": "Format"
+        }
+      ]
+    },
+    {
+      "name": "status_get",
+      "description": "Server + device readiness (session-less; use for healthcheck). Returns the Value.",
+      "method": "GET",
+      "path": "/status",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_active-app-info",
+      "description": "Bundle id + pid of the foreground app. Returns the Value.",
+      "method": "GET",
+      "path": "/wda/activeAppInfo",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_battery-info",
+      "description": "Battery level and state. Returns the Value.",
+      "method": "GET",
+      "path": "/wda/batteryInfo",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_device-info",
+      "description": "Device model, iOS version, screen size, etc. Returns the Value.",
+      "method": "GET",
+      "path": "/wda/device/info",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_homescreen",
+      "description": "Press Home / go to the Home Screen (session-less).",
+      "method": "POST",
+      "path": "/wda/homescreen",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_is-locked",
+      "description": "Whether the screen is locked (session-less). Returns the Value.",
+      "method": "GET",
+      "path": "/wda/locked",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_lock",
+      "description": "Lock the screen (session-less).",
+      "method": "POST",
+      "path": "/wda/lock",
+      "no_auth": true,
+      "params": []
+    },
+    {
+      "name": "wda_unlock",
+      "description": "Unlock the screen (session-less; phone must have no/known passcode).",
+      "method": "POST",
+      "path": "/wda/unlock",
+      "no_auth": true,
+      "params": []
+    }
+  ]
+}
