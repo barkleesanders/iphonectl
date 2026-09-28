@@ -68,6 +68,104 @@ Every command has `--json`, `--select`, `--dry-run`, `--stdin`. The MCP server a
 `wda/build/iphonectl-pp-mcp-darwin-arm64.mcpb` exposes every command as an MCP tool, so an
 agent gets the same surface.
 
+## WebDriverAgent setup — full walkthrough
+
+WDA is an Apple **XCUITest** runner that stands up an HTTP server (default `:8100`) on the
+phone; you POST JSON to it and it drives the device (tap, type, swipe, read the element tree,
+screenshot). It's an open-source project maintained by the Appium team
+([`github.com/appium/WebDriverAgent`](https://github.com/appium/WebDriverAgent)). To run on a
+**real** iPhone it must be code-signed with an Apple Team and trusted on the device.
+
+### 1. Prerequisites
+
+```bash
+xcode-select --install    # Xcode command-line tools (devicectl, xcodebuild)
+brew install go-ios       # or: go install github.com/danielpaulus/go-ios/...@latest
+```
+
+- Full **Xcode** (Mac App Store) is needed to build + sign WDA the first time; the CLT alone
+  can only launch/read.
+- Plug the iPhone in over USB and tap **Trust This Computer** on the phone.
+
+### 2. Get a signing identity
+
+WDA has to be signed with an Apple **Team** (a Team ID + a signing certificate in your login
+keychain). You do **not** have to pay for this — see [Getting a signing identity for
+free](#getting-a-signing-identity-for-free) below, then come back here.
+
+### 3. Start the tunnel (iOS 17+)
+
+```bash
+sudo go-ios tunnel start   # terminal 1 — leave it running
+```
+
+On iOS 17 and newer, WDA's actuation channel needs a running tunnel plus a mounted Developer
+Disk Image. Keep this terminal open; if it dies, tap/type/launch stops until you restart it.
+
+### 4. Sign + install WDA (first run only)
+
+```bash
+./bin/iphonectl-setup install   # signs WDA with your Team and installs it on the phone
+```
+
+Then, on the phone: **Settings → General → VPN & Device Management → [your Team] → Trust**.
+Exact signing inputs (Team ID, cert) are described by `./bin/iphonectl-setup help`.
+
+### 5. Run WDA + open a session
+
+```bash
+./bin/iphonectl-setup up     # runs WDA, forwards :8100, writes ~/.config/iphonectl/session-id
+iphonectl-pp-cli status      # should report WDA ready
+```
+
+### 6. Drive it
+
+```bash
+iphonectl-pp-cli wda homescreen
+SID=$(cat ~/.config/iphonectl/session-id)
+iphonectl-pp-cli session wda "$SID" ...   # tap / swipe / keys / launch-app / ...
+```
+
+If you signed with a **free** Apple ID, the profile expires after 7 days — just re-run
+`./bin/iphonectl-setup install` to re-sign.
+
+## Getting a signing identity for free
+
+You do **not** need to pay the $99/year Apple Developer Program fee to run WDA. Two routes:
+
+### A. Free Apple ID ("Personal Team") — $0, works today
+
+Sign in to your Apple ID in **Xcode → Settings → Accounts**; Xcode creates a *Personal Team*
+that can sign WDA. Apple's limits on free signing
+([compare memberships](https://developer.apple.com/support/compare-memberships/),
+[provisioning profile updates](https://developer.apple.com/help/account/provisioning-profiles/provisioning-profile-updates/)):
+
+- Provisioning profiles **expire after 7 days** — re-sign/re-install weekly.
+- Up to **3 apps per device**, **3 registered devices**, and **10 App IDs per 7 days**.
+- No push and some entitlements are unavailable — none of which WDA needs.
+
+Enough to run the whole Path B pipeline; you just re-run `install` each week.
+
+### B. Apple Developer Program fee waiver — full membership, $0, for nonprofits / schools / government
+
+Apple **waives the $99/year fee** for eligible organizations, giving you a real paid-tier
+membership: **1-year** provisioning profiles (no weekly re-sign) and no 3-app cap. Per Apple's
+[membership fee waiver page](https://developer.apple.com/support/membership-fee-waiver/),
+eligible entities are:
+
+- **Nonprofit organizations** officially recognized by the relevant authority (the IRS in the
+  U.S., a charity register in the E.U., the Ministry of Civil Affairs in mainland China, etc.);
+- **Accredited educational institutions**; and
+- **Government entities**.
+
+Requirements: you must be a **legal entity** (not an individual or sole proprietor), must
+**not** have signed Apple's Paid Applications Agreement, and must **not** sell digital
+goods/services through your apps. You enroll as an organization (needs a D-U-N-S number) and
+request the waiver.
+
+> The verified device in this repo was signed under a **nonprofit** organization account via
+> this waiver — so the full Path B flow runs on a complete membership at **$0/year**.
+
 ## Path A — native, nothing on the phone
 
 Swift package; `swift build`, binary at `native/.build/debug/iphonectl-native`.
