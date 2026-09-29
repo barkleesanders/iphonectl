@@ -25,9 +25,10 @@ Scope: your own device, for interoperability (DMCA §1201(f)).
 | `info` | name / model / iOS / build / UDID | go-ios lockdownd | USB + Trust |
 | `apps [filter]` | installed apps → bundle ids | go-ios lockdownd | USB + Trust |
 | `open <name\|bundle>` | **launch an app on the phone** | `xcrun devicectl` (self-mounts DDI) | USB + Trust, unlocked |
-| `screenshot [out.png]` | capture the screen | Path B (WDA) | `iphonectl-setup up` |
-| `tap <x> <y>` | tap at coordinates | Path B (WDA) | `iphonectl-setup up` |
-| `type <text>` | type into focused field | Path B (WDA) | `iphonectl-setup up` |
+| `screenshot [out.png]` | capture the screen | go-ios screenshotr (WDA fallback) | tunnel running |
+| `tap <x> <y>` | tap at coordinates (points) | Path B (WDA REST) | `iphonectl-setup wda` |
+| `swipe <x1> <y1> <x2> <y2>` | drag/scroll (points) | Path B (WDA REST) | `iphonectl-setup wda` |
+| `type <text>` | type into focused field | Path B (WDA REST) | `iphonectl-setup wda` |
 
 `list` / `info` / `apps` / `open` work over USB with **no tunnel** — this is the reliable
 path and what to reach for first. `open` resolves an app *name* to its bundle id against the
@@ -46,21 +47,41 @@ make install    # symlinks controlphone + binaries into ~/.local/bin
 make verify     # build, then `controlphone list` + `info` as a live smoke test
 ```
 
-## Path B — WebDriverAgent (full tap/type/swipe/screenshot)
+## Path B — WebDriverAgent (full tap/swipe/type)
 
-`open`/`info`/`apps`/`list` do not need this; `tap`/`type`/`screenshot` do.
+**Working bring-up (verified live 2026-09-28, iPhone 17 Pro / iOS 27.0 — drove a full camera e2e):**
 
 ```bash
 cd ~/projects/iphonectl
-./bin/iphonectl-setup tunnel     # terminal 1 — stays running, sudo (iOS 17+)
-./bin/iphonectl-setup install    # first run only: sign + install WDA on the phone
-./bin/iphonectl-setup up         # run WDA, forward :8100, create a session -> ~/.config/iphonectl/session-id
+sudo -n ~/go/bin/go-ios tunnel start --udid=<UDID> &   # iOS 17+ tunnel (sudo is passwordless here)
+./bin/iphonectl-setup wda     # clones appium/WebDriverAgent -> vendor/, xcodebuild test with
+                              # ASC-key auto-provisioning (team 2KJ8W6N44B, key R7RQM8U3QY),
+                              # waits for ServerURLHere, forwards device:8100 -> first free
+                              # local port (writes ~/.config/iphonectl/port), creates session
+./bin/controlphone tap 271 82 # points = screenshot pixels / 3
 ```
 
-Then `controlphone tap/type/screenshot` route through the generated CLI
-`~/projects/iphonectl/wda/iphonectl-pp-cli` (build: `make wda`). Every generated command has
-`--json`, `--select`, `--dry-run`. MCP server (every command as an MCP tool):
-`~/projects/iphonectl/wda/build/iphonectl-pp-mcp-darwin-arm64.mcpb`.
+Why this path and not `install`/`up`: `go-ios ui install wda` needs a `.p12` + a *development*
+profile covering the WDA bundle id. The only dev profile on this Mac is app-specific
+(`com.improvebayarea.app`), and exporting the dev identity to a p12 triggers a keychain-export
+password prompt. xcodebuild signs in place with the keychain identity and mints the WDA profile
+itself. This go-ios build has **no `sign` subcommand** (older docs suggesting
+`go-ios sign provision appstoreconnect` are wrong for it).
+
+Traps found live:
+- `:8100` and `:8101` are held by the **mobilecli daemon** (mobile-mcp). Forwarding to them fails
+  with `bind: address already in use` and curl reports `Connection reset by peer`. `wda` picks a
+  free port; tap/swipe/type read it from `~/.config/iphonectl/port`.
+- **mobile-mcp screenshot/tap ETIMEDOUT on iOS 27** even with a fresh tunnel and healthy
+  installationproxy (`controlphone apps` works) — its DeviceKit capture path is what is broken.
+  Use controlphone, not mobile-mcp, for the physical phone.
+- A stale go-ios tunnel makes installationproxy look dead ("context canceled"). Restart the phone
+  tunnel first; do not conclude pairing is broken off one hang.
+- WDA also listens on the phone's Wi-Fi IP (`ServerURLHere->http://10.0.0.62:8100` in the log) —
+  a usable fallback if the USB forward misbehaves.
+
+Legacy (still present): `iphonectl-setup install` (p12+profile via go-ios) and `up` (runwda +
+forward on 8100). Generated REST CLI `wda/iphonectl-pp-cli` + MCP bundle remain available.
 
 ## Path A — native, nothing installed on the phone
 
@@ -79,7 +100,8 @@ use `open` (devicectl) or Path B (WDA). Details: `native/Sources/iphonectl-nativ
 
 - "open <app> on my phone" / "launch X" → `controlphone open <X>` (works now, no tunnel).
 - "what's on my phone" / "device info" → `controlphone apps` / `controlphone info`.
-- "tap / type / swipe / screenshot" → Path B: `iphonectl-setup up`, then `controlphone tap/type/screenshot`.
+- "screenshot" → `controlphone screenshot` (go-ios screenshotr; no WDA needed).
+- "tap / type / swipe" → Path B: `iphonectl-setup wda`, then `controlphone tap/swipe/type`.
 - "control it with nothing installed" → Path A (screen-capture + HID walls noted above).
 
 ## Ground truth / setup

@@ -106,6 +106,13 @@ session_up() { [ -f "$SESSION_FILE" ] && [ -s "$SESSION_FILE" ]; }
 
 cmd_screenshot() {
   local out="${1:-iphone-$(date +%Y%m%d-%H%M%S).png}"
+  # Primary: go-ios screenshotr over the iOS-17+ tunnel. Needs no WDA.
+  # Verified 2026-09-28 on iPhone 17 Pro / iOS 27.0: 1206x2622 PNG, RC=0.
+  local u; u="$(resolve_udid)"
+  if [ -n "$u" ] && [ -x "$GOIOS" ] && "$GOIOS" screenshot --udid="$u" --output="$out" >/dev/null 2>&1 && [ -s "$out" ]; then
+    echo "wrote $out (go-ios screenshotr)"
+    return 0
+  fi
   if session_up && [ -x "$PP_CLI" ]; then
     echo "capturing via WebDriverAgent (Path B) -> $out"
     "$PP_CLI" screenshot --json 2>/dev/null | python3 -c '
@@ -117,18 +124,31 @@ open(sys.argv[1],"wb").write(base64.b64decode(b))' "$out" && echo "wrote $out"
   fi
 }
 
-cmd_tap() {
-  [ $# -ge 2 ] || die "usage: controlphone tap <x> <y>"
-  session_up && [ -x "$PP_CLI" ] || die "tap needs Path B running: iphonectl-setup up"
+# WDA base: the port written by bring-up (default 8102 — 8100/8101 are often held
+# by the mobilecli daemon). Calls WDA's REST API directly; coordinates are POINTS
+# (screenshot pixels / 3 on a 3x device).
+wda_base() { printf 'http://127.0.0.1:%s' "$(cat "$HOME/.config/iphonectl/port" 2>/dev/null || echo 8102)"; }
+wda_post() {  # path json
+  session_up || die "needs Path B running (WDA + session). See: controlphone help"
   local sid; sid="$(cat "$SESSION_FILE")"
-  "$PP_CLI" session wda "$sid" --action tap --x "$1" --y "$2" 2>&1 | tail -3
+  curl -fsS -m 20 -X POST "$(wda_base)/session/$sid$1" -H 'Content-Type: application/json' -d "$2" >/dev/null \
+    || die "WDA call failed ($1) — is WDA running and the session fresh? (curl $(wda_base)/status)"
+}
+
+cmd_tap() {
+  [ $# -ge 2 ] || die "usage: controlphone tap <x> <y>   (points)"
+  wda_post /wda/tap "{\"x\":$1,\"y\":$2}" && echo "tapped $1,$2"
+}
+
+cmd_swipe() {
+  [ $# -ge 4 ] || die "usage: controlphone swipe <x1> <y1> <x2> <y2>   (points)"
+  wda_post /wda/dragfromtoforduration "{\"fromX\":$1,\"fromY\":$2,\"toX\":$3,\"toY\":$4,\"duration\":0.3}" && echo "swiped"
 }
 
 cmd_type() {
   [ $# -ge 1 ] || die "usage: controlphone type <text>"
-  session_up && [ -x "$PP_CLI" ] || die "type needs Path B running: iphonectl-setup up"
-  local sid; sid="$(cat "$SESSION_FILE")"
-  "$PP_CLI" session wda "$sid" --action keys --text "$*" 2>&1 | tail -3
+  local j; j="$(python3 -c 'import json,sys;print(json.dumps({"value":list(" ".join(sys.argv[1:]))}))' "$@")"
+  wda_post /wda/keys "$j" && echo "typed"
 }
 
 usage() {
@@ -163,6 +183,7 @@ main() {
     apps)        cmd_apps "$@" ;;
     open|launch) cmd_open "$@" ;;
     screenshot|shot) cmd_screenshot "$@" ;;
+    swipe) cmd_swipe "$@" ;;
     tap)         cmd_tap "$@" ;;
     type)        cmd_type "$@" ;;
     help|-h|--help) usage ;;

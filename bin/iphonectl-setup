@@ -72,7 +72,7 @@ cmd_install() {
     err "  export IPHONECTL_PROFILE=/path/to/profile.mobileprovision"
     err "  export IPHONECTL_P12_PASSWORD=...        # if the p12 has one"
     err "Create them from an Apple Development identity (free personal team OK for 7-day installs),"
-    err "or use: $GOIOS sign provision appstoreconnect ..."
+    err "or skip p12 entirely: $0 wda  (xcodebuild + ASC-key auto-provisioning)"
     return 4
   fi
   info "signing + installing WebDriverAgent on device"
@@ -149,13 +149,52 @@ cmd_up() {
 }
 
 cmd_down() {
-  for p in runwda forward; do
+  for p in runwda forward wda-xcodebuild; do
     if [ -f "$STATE_DIR/$p.pid" ]; then
       kill "$(cat "$STATE_DIR/$p.pid")" 2>/dev/null && ok "stopped $p" || true
       rm -f "$STATE_DIR/$p.pid"
     fi
   done
   info "tunnel (sudo) must be stopped in its own terminal (Ctrl-C) or: sudo $GOIOS tunnel stopagent"
+}
+
+# cmd_wda — the WORKING bring-up on iOS 17+/27 (verified 2026-09-28, iPhone 17 Pro, iOS 27.0).
+# Builds appium/WebDriverAgent with xcodebuild + App Store Connect API-key automatic
+# provisioning, so no .p12 export (and no keychain-export prompt) is needed. Then
+# forwards device:8100 to the first free local port (8100/8101 are often held by the
+# mobilecli daemon), writes that port to $STATE_DIR/port, and opens a session.
+cmd_wda() {
+  local udid; udid="$(resolve_udid)" || return $?
+  local src="${IPHONECTL_WDA_SRC:-$HOME/projects/iphonectl/vendor/WebDriverAgent}"
+  local key="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_R7RQM8U3QY.p8}"
+  local kid="${ASC_KEY_ID:-R7RQM8U3QY}" iss="${ASC_ISSUER_ID:-bb384f04-c56c-432d-ae78-78225da0a1d4}"
+  local team="${IPHONECTL_TEAM:-2KJ8W6N44B}"
+  [ -d "$src" ] || git clone --depth 1 https://github.com/appium/WebDriverAgent.git "$src"
+  info "building + launching WDA on $udid (log -> $LOG_DIR/wda-xcodebuild.log; first build ~2-5 min)"
+  nohup xcodebuild test -project "$src/WebDriverAgent.xcodeproj" -scheme WebDriverAgentRunner \
+    -destination "id=$udid" -derivedDataPath "$src/../wda-dd" \
+    -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+    -authenticationKeyPath "$key" -authenticationKeyID "$kid" -authenticationKeyIssuerID "$iss" \
+    DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic \
+    PRODUCT_BUNDLE_IDENTIFIER="${IPHONECTL_WDA_BUNDLE:-com.esbeinc.WebDriverAgentRunner}" \
+    >"$LOG_DIR/wda-xcodebuild.log" 2>&1 &
+  echo $! > "$STATE_DIR/wda-xcodebuild.pid"
+  local i
+  for i in $(seq 1 120); do
+    grep -q 'ServerURLHere' "$LOG_DIR/wda-xcodebuild.log" 2>/dev/null && break
+    kill -0 "$(cat "$STATE_DIR/wda-xcodebuild.pid")" 2>/dev/null || { err "xcodebuild exited — see $LOG_DIR/wda-xcodebuild.log"; return 5; }
+    sleep 5
+  done
+  grep -q 'ServerURLHere' "$LOG_DIR/wda-xcodebuild.log" || { err "WDA did not start within 10 min"; return 5; }
+  ok "WDA serving on device"
+  local port
+  for port in 8102 8103 8104 8117 8118; do lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1 || break; done
+  nohup "$GOIOS" forward "$port" 8100 --udid="$udid" >"$LOG_DIR/forward.log" 2>&1 &
+  echo $! > "$STATE_DIR/forward.pid"; echo "$port" > "$STATE_DIR/port"; sleep 3
+  WDA_BASE="http://127.0.0.1:$port"
+  cmd_status >/dev/null || return $?
+  cmd_session >/dev/null || return $?
+  ok "Path B UP on $WDA_BASE — controlphone tap/swipe/type now work"
 }
 
 cmd_help() {
@@ -174,6 +213,8 @@ COMMANDS
   status      Probe $WDA_BASE/status
   session     Create a WDA session and cache its id at $SESSION_FILE
   up          preflight -> run -> forward -> status -> session (tunnel must already be running)
+  wda         RECOMMENDED: build+run WDA via xcodebuild (ASC-key auto-provisioning),
+              forward to a free port, create a session. Needs the tunnel running.
   down        Stop background runwda + forward processes
   help        This text
 
@@ -203,6 +244,7 @@ main() {
     status)    cmd_status "$@" ;;
     session)   cmd_session "$@" ;;
     up)        cmd_up "$@" ;;
+    wda)       cmd_wda "$@" ;;
     down)      cmd_down "$@" ;;
     help|-h|--help) cmd_help ;;
     *) err "unknown command: $cmd"; cmd_help; return 2 ;;
